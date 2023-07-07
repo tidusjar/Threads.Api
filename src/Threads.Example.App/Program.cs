@@ -10,7 +10,13 @@ namespace Threads.Example.App
 
             IThreadsApi api = new ThreadsApi(new HttpClient());
 
-            var userId = await api.GetUserIdFromUserNameAsync("tidusjar");
+            var username = "tidusjar";
+
+            var userId = await api.GetUserIdFromUserNameAsync(username);
+            Console.WriteLine(userId);
+            var userProfile = await api.GetUserProfile(username, userId);
+
+            Console.WriteLine(userProfile?.Username);
 
         }
     }

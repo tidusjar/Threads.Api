@@ -11,4 +11,9 @@
 		<PackageVersion>1.0.0-alpha</PackageVersion>
 	</PropertyGroup>
 
+	<ItemGroup>
+	  <PackageReference Include="Microsoft.AspNetCore.WebUtilities" Version="2.2.0" />
+	  <PackageReference Include="System.Text.Json" Version="7.0.3" />
+	</ItemGroup>
+
 </Project>

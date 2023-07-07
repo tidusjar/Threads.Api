@@ -1,5 +1,6 @@
 using System.Net;
 using System.Reflection;
+using Threads.Api.Exceptions;
 
 namespace Threads.Api.Tests;
 

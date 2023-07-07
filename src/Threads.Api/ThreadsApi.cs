@@ -1,20 +1,27 @@
-﻿using System;
+﻿using Microsoft.AspNetCore.WebUtilities;
+using System;
+using System.Collections.Generic;
 using System.Net.Http;
+using System.Text.Json;
 using System.Text.RegularExpressions;
 using System.Threading;
 using System.Threading.Tasks;
+using Threads.Api.Exceptions;
+using Threads.Api.Models;
 
 namespace Threads.Api;
 
 public interface IThreadsApi
 {
     Task<int> GetUserIdFromUserNameAsync(string username, CancellationToken cancellationToken = default);
+    Task<User?> GetUserProfile(string username, int userId, CancellationToken cancellationToken = default);
 }
 
 public class ThreadsApi : IThreadsApi
 {
     private readonly HttpClient _client;
     private const string _url = "https://www.threads.net/";
+    private const string _graphUrl = "https://www.threads.net/api/graphql";
 
     private string FbLSDToken { get; set; } = string.Empty;
 
@@ -47,7 +54,6 @@ public class ThreadsApi : IThreadsApi
         request.Headers.Add("X-ig-app-id", "");
 
 
-        request.Headers.UserAgent.Add(new System.Net.Http.Headers.ProductInfoHeaderValue("PostmanRuntime", "7.32.3"));
 
         var response = await _client.SendAsync(request, cancellationToken).ConfigureAwait(false);
         var text = await response.Content.ReadAsStringAsync().ConfigureAwait(false);
@@ -59,12 +65,43 @@ public class ThreadsApi : IThreadsApi
         string lsdToken = Regex.Match(text, @"""LSD"",\[\],{""token"":""(\w+)""},\d+\]")?.Groups[1].Value;
         FbLSDToken = lsdToken;
 
+        if (string.IsNullOrEmpty(lsdToken))
+        {
+            throw new UserNotFoundException(username);
+        }
+
         if (int.TryParse(userID, out int value))
         {
             return value;
         }
 
         throw new UserNotFoundException(username);
+    }
+
+    public async Task<User?> GetUserProfile(string username, int userId, CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(FbLSDToken) || userId <= 0)
+        {
+            throw new InvalidStateException();
+        }
+
+
+        var param = new Dictionary<string, string> {
+            { "lsd", FbLSDToken },
+            { "variables", $"{{\"userID\":\"{userId}\"}}" },
+            { "doc_id", "23996318473300828" },
+        };
+
+        var request = new HttpRequestMessage(HttpMethod.Post, new Uri(QueryHelpers.AddQueryString(_graphUrl, param)));
+        GetDefaultHeaders(username, request);
+        request.Headers.Add("x-fb-friendly-name", "BarcelonaProfileRootQuery");
+
+
+        var response = await _client.SendAsync(request, cancellationToken).ConfigureAwait(false);
+        var stream = await response.Content.ReadAsStreamAsync().ConfigureAwait(false);
+        var profile = await JsonSerializer.DeserializeAsync<UserProfile>(stream).ConfigureAwait(false);
+
+        return profile?.Data?.UserData?.User;
     }
 
     private void GetDefaultHeaders(string username, HttpRequestMessage request)
@@ -74,6 +111,7 @@ public class ThreadsApi : IThreadsApi
         request.Headers.Add("Origin", "https://www.threads.net");
         request.Headers.Add("x-fb-lsd", this.FbLSDToken);
         request.Headers.Add("Accept", "*/*");
+        request.Headers.UserAgent.Add(new System.Net.Http.Headers.ProductInfoHeaderValue("PostmanRuntime", "7.32.3"));
     }
 
 }
