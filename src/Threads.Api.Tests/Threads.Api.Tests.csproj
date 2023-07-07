@@ -19,7 +19,7 @@
   </ItemGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\src\Threads.Api.csproj" />
+    <ProjectReference Include="..\Threads.Api\Threads.Api.csproj" />
   </ItemGroup>
 
 </Project>
