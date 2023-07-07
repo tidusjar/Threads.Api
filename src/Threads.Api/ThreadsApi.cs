@@ -14,7 +14,8 @@ namespace Threads.Api;
 public interface IThreadsApi
 {
     Task<int> GetUserIdFromUserNameAsync(string username, CancellationToken cancellationToken = default);
-    Task<User?> GetUserProfile(string username, int userId, CancellationToken cancellationToken = default);
+    Task<User?> GetUserProfileAsync(string username, int userId, CancellationToken cancellationToken = default);
+    Task<string> GetThreadsAsync(string username, int userId, CancellationToken cancellationToken = default);
 }
 
 public class ThreadsApi : IThreadsApi
@@ -78,13 +79,16 @@ public class ThreadsApi : IThreadsApi
         throw new UserNotFoundException(username);
     }
 
-    public async Task<User?> GetUserProfile(string username, int userId, CancellationToken cancellationToken = default)
+    public async Task<User?> GetUserProfileAsync(string username, int userId, CancellationToken cancellationToken = default)
     {
+        if (string.IsNullOrEmpty(username))
+        {
+            throw new ArgumentNullException(username);
+        }
         if (string.IsNullOrWhiteSpace(FbLSDToken) || userId <= 0)
         {
             throw new InvalidStateException();
         }
-
 
         var param = new Dictionary<string, string> {
             { "lsd", FbLSDToken },
@@ -96,12 +100,39 @@ public class ThreadsApi : IThreadsApi
         GetDefaultHeaders(username, request);
         request.Headers.Add("x-fb-friendly-name", "BarcelonaProfileRootQuery");
 
-
         var response = await _client.SendAsync(request, cancellationToken).ConfigureAwait(false);
         var stream = await response.Content.ReadAsStreamAsync().ConfigureAwait(false);
         var profile = await JsonSerializer.DeserializeAsync<UserProfile>(stream).ConfigureAwait(false);
 
         return profile?.Data?.UserData?.User;
+    }
+
+    public async Task<string> GetThreadsAsync(string username, int userId, CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrEmpty(username))
+        {
+            throw new ArgumentNullException(username);
+        }
+        if (string.IsNullOrWhiteSpace(FbLSDToken) || userId <= 0)
+        {
+            throw new InvalidStateException();
+        }
+
+        var param = new Dictionary<string, string> {
+            { "lsd", FbLSDToken },
+            { "variables", $"{{\"userID\":\"{userId}\"}}" },
+            { "doc_id", "6232751443445612" },
+        };
+
+        var request = new HttpRequestMessage(HttpMethod.Post, new Uri(QueryHelpers.AddQueryString(_graphUrl, param)));
+        GetDefaultHeaders(username, request);
+        request.Headers.Add("x-fb-friendly-name", "BarcelonaProfileRootQuery");
+
+        var response = await _client.SendAsync(request, cancellationToken).ConfigureAwait(false);
+        var s = await response.Content.ReadAsStringAsync().ConfigureAwait(false);
+        //var stream = await response.Content.ReadAsStreamAsync().ConfigureAwait(false);
+        //var profile = await JsonSerializer.DeserializeAsync<UserProfile>(stream).ConfigureAwait(false);
+        return s;
     }
 
     private void GetDefaultHeaders(string username, HttpRequestMessage request)

@@ -14,9 +14,11 @@ namespace Threads.Example.App
 
             var userId = await api.GetUserIdFromUserNameAsync(username);
             Console.WriteLine(userId);
-            var userProfile = await api.GetUserProfile(username, userId);
+            var userProfile = await api.GetUserProfileAsync(username, userId);
 
             Console.WriteLine(userProfile?.Username);
+
+            var threads = await api.GetThreadsAsync(username, userId);
 
         }
     }
