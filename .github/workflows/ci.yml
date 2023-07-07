@@ -21,13 +21,13 @@ jobs:
       with:
         dotnet-version: 7.0.x
     - name: Restore dependencies
-      run: dotnet restore .\src\Threads.Api.sln
+      run: dotnet restore ./src/Threads.Api.sln
     - name: Build
-      run: dotnet build .\src\Threads.Api.sln --no-restore --configuration Release
+      run: dotnet build ./src/Threads.Api.sln --no-restore --configuration Release
     - name: Test
-      run: dotnet test .\src\Threads.Api.sln --no-build --verbosity normal
+      run: dotnet test ./src/Threads.Api.sln --no-build --verbosity normal
     - name: Pack
-      run: dotnet pack .\src\Threads.Api\Threads.Api.csproj --configuration Release --no-build --output ./artifacts
+      run: dotnet pack ./src/Threads.Api/Threads.Api.csproj --configuration Release --no-build --output ./artifacts
 
     - uses: actions/upload-artifact@master
       with:
