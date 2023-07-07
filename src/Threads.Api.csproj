@@ -1,0 +1,17 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+	<PropertyGroup>
+		<TargetFramework>netstandard2.1</TargetFramework>
+		<Nullable>enable</Nullable>
+		<LangVersion>Latest</LangVersion>
+		<GeneratePackageOnBuild>True</GeneratePackageOnBuild>
+		<Title>Threads.Net API</Title>
+		<Description>An unofficial Threads.Net API</Description>
+		<PackageProjectUrl>https://github.com/tidusjar/Threads.Net</PackageProjectUrl>
+	</PropertyGroup>
+
+	<ItemGroup>
+	  <None Include="https:\github.com\tidusjar\Threads.Net\README.md" />
+	</ItemGroup>
+
+</Project>
