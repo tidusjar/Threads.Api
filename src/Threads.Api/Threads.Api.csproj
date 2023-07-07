@@ -10,8 +10,4 @@
 		<PackageProjectUrl>https://github.com/tidusjar/Threads.Net</PackageProjectUrl>
 	</PropertyGroup>
 
-	<ItemGroup>
-	  <None Include="https:\github.com\tidusjar\Threads.Net\README.md" />
-	</ItemGroup>
-
 </Project>
