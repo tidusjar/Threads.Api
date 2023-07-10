@@ -15,7 +15,9 @@ public interface IThreadsApi
 {
     Task<int> GetUserIdFromUserNameAsync(string username, CancellationToken cancellationToken = default);
     Task<User?> GetUserProfileAsync(string username, int userId, CancellationToken cancellationToken = default);
-    Task<string> GetThreadsAsync(string username, int userId, CancellationToken cancellationToken = default);
+    Task<UserThreads> GetThreadsAsync(string username, int userId, CancellationToken cancellationToken = default);
+    Task<UserReplies> GetUserRepliesAsync(string username, int userId, CancellationToken cancellationToken = default);
+    Task<string> GetTokenAsync(string username, string password, CancellationToken cancellationToken = default);
 }
 
 public class ThreadsApi : IThreadsApi
@@ -23,7 +25,10 @@ public class ThreadsApi : IThreadsApi
     private readonly HttpClient _client;
     private const string _url = "https://www.threads.net/";
     private const string _graphUrl = "https://www.threads.net/api/graphql";
+    private const string BaseApiUrl = "https://i.instagram.com/api/v1";
+    private readonly string LoginUrl = $"{BaseApiUrl}/bloks/apps/com.bloks.www.bloks.caa.login.async.send_login_request/";
 
+    private string AuthToken { get; set; }
     private string FbLSDToken { get; set; } = string.Empty;
 
     public ThreadsApi(HttpClient httpClient)
@@ -54,8 +59,6 @@ public class ThreadsApi : IThreadsApi
         request.Headers.Add("X-fb-lsd", "");
         request.Headers.Add("X-ig-app-id", "");
 
-
-
         var response = await _client.SendAsync(request, cancellationToken).ConfigureAwait(false);
         var text = await response.Content.ReadAsStringAsync().ConfigureAwait(false);
 
@@ -64,12 +67,12 @@ public class ThreadsApi : IThreadsApi
 
         string userID = Regex.Match(text, @"""props"":{""user_id"":""(\d+)""}")?.Groups[1].Value;
         string lsdToken = Regex.Match(text, @"""LSD"",\[\],{""token"":""(\w+)""},\d+\]")?.Groups[1].Value;
-        FbLSDToken = lsdToken;
 
         if (string.IsNullOrEmpty(lsdToken))
         {
             throw new UserNotFoundException(username);
         }
+        FbLSDToken = lsdToken;
 
         if (int.TryParse(userID, out int value))
         {
@@ -101,14 +104,15 @@ public class ThreadsApi : IThreadsApi
         request.Headers.Add("x-fb-friendly-name", "BarcelonaProfileRootQuery");
 
         var response = await _client.SendAsync(request, cancellationToken).ConfigureAwait(false);
-        var stream = await response.Content.ReadAsStreamAsync().ConfigureAwait(false);
-        var profile = await JsonSerializer.DeserializeAsync<UserProfile>(stream).ConfigureAwait(false);
+        var stream = await response.Content.ReadAsStringAsync().ConfigureAwait(false);
+        var profile = JsonSerializer.Deserialize<UserProfile>(stream);
 
         return profile?.Data?.UserData?.User;
     }
 
-    public async Task<string> GetThreadsAsync(string username, int userId, CancellationToken cancellationToken = default)
+    public async Task<UserThreads> GetThreadsAsync(string username, int userId, CancellationToken cancellationToken = default)
     {
+        // TODO
         if (string.IsNullOrEmpty(username))
         {
             throw new ArgumentNullException(username);
@@ -126,23 +130,99 @@ public class ThreadsApi : IThreadsApi
 
         var request = new HttpRequestMessage(HttpMethod.Post, new Uri(QueryHelpers.AddQueryString(_graphUrl, param)));
         GetDefaultHeaders(username, request);
-        request.Headers.Add("x-fb-friendly-name", "BarcelonaProfileRootQuery");
+        request.Headers.Add("x-fb-friendly-name", "BarcelonaProfileThreadsTabQuery");
+
+        var response = await _client.SendAsync(request, cancellationToken).ConfigureAwait(false);
+        var stream = await response.Content.ReadAsStreamAsync().ConfigureAwait(false);
+        var threads = await JsonSerializer.DeserializeAsync<UserThreads>(stream).ConfigureAwait(false);
+        return threads;
+    }
+
+    public async Task<UserReplies> GetUserRepliesAsync(string username, int userId, CancellationToken cancellationToken = default)
+    {
+        var param = new Dictionary<string, string> {
+            { "lsd", FbLSDToken },
+            { "variables", $"{{\"userID\":\"{userId}\"}}" },
+            { "doc_id", "6684830921547925" },
+        };
+
+        var request = new HttpRequestMessage(HttpMethod.Post, new Uri(QueryHelpers.AddQueryString(_graphUrl, param)));
+        GetDefaultHeaders(username, request);
+        request.Headers.Add("x-fb-friendly-name", "BarcelonaProfileThreadsTabQuery");
+        var response = await _client.SendAsync(request, cancellationToken).ConfigureAwait(false);
+        var stream = await response.Content.ReadAsStreamAsync().ConfigureAwait(false);
+        var replies = await JsonSerializer.DeserializeAsync<UserReplies>(stream).ConfigureAwait(false);
+        return replies;
+    }
+
+    public async Task<string> GetTokenAsync(string username, string password, CancellationToken cancellationToken = default)
+    {
+        var deviceId = "android-1vp2aultsmo00000";
+
+        var body = JsonSerializer.Serialize(new
+        {
+            client_input_params = new
+            {
+                password = password,
+                contact_point = username,
+                device_id = deviceId
+            },
+            server_params = new
+            {
+                credentail_type = "password",
+                device_id = deviceId,
+            }
+        });
+
+
+        var blockVersion = "5f56efad68e1edec7801f630b5c122704ec5378adbee6609a448f105f34a9c73";
+
+        var bkClientContext = JsonSerializer.Serialize(new
+        {
+            bloks_version = blockVersion,
+            styles_id = "instagram"
+        });
+
+
+        var request = new HttpRequestMessage(HttpMethod.Post, new Uri(LoginUrl));
+        var content = new StringContent($"params={body}&bk_client_context={bkClientContext}&bloks_versioning_id={blockVersion}");
+
+        //var form = new Dictionary<string, string>
+        //{
+        //    { "params", body },
+        //    { "bk_client_context", bkClientContext },
+        //    { "bloks_versioning_id", blockVersion },
+        //};
+
+        //var content = new FormUrlEncodedContent(form);
+        GetAppHeaders(request);
+        request.Content = content;
+        request.Content.Headers.Clear();
+        request.Content.Headers.Add("Content-Type", "application/x-www-form-urlencoded; charset=UTF-8");
 
         var response = await _client.SendAsync(request, cancellationToken).ConfigureAwait(false);
         var s = await response.Content.ReadAsStringAsync().ConfigureAwait(false);
-        //var stream = await response.Content.ReadAsStreamAsync().ConfigureAwait(false);
-        //var profile = await JsonSerializer.DeserializeAsync<UserProfile>(stream).ConfigureAwait(false);
         return s;
     }
 
     private void GetDefaultHeaders(string username, HttpRequestMessage request)
     {
+        GetAppHeaders(request);
         request.Headers.Add("Authority", "www.threads.net");
         request.Headers.Add("Cache-Control", "no-cache");
         request.Headers.Add("Origin", "https://www.threads.net");
         request.Headers.Add("x-fb-lsd", this.FbLSDToken);
+    }
+
+    private void GetAppHeaders(HttpRequestMessage request)
+    {
+        request.Headers.Clear();
         request.Headers.Add("Accept", "*/*");
-        request.Headers.UserAgent.Add(new System.Net.Http.Headers.ProductInfoHeaderValue("PostmanRuntime", "7.32.3"));
+        request.Headers.Add("User-Agent", "Barcelona 289.0.0.77.109 Android");
+        if (!string.IsNullOrWhiteSpace(AuthToken))
+        {
+            request.Headers.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", $"IGT:2:{AuthToken}");
+        }
     }
 
 }

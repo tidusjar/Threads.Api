@@ -16,9 +16,13 @@ namespace Threads.Example.App
             Console.WriteLine(userId);
             var userProfile = await api.GetUserProfileAsync(username, userId);
 
-            Console.WriteLine(userProfile?.Username);
+            Console.WriteLine(userProfile?.UserName);
 
             var threads = await api.GetThreadsAsync(username, userId);
+
+            var replies = await api.GetUserRepliesAsync(username, userId);
+
+            var token = await api.GetTokenAsync("tidusjar", "pass");
 
         }
     }

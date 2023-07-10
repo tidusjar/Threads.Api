@@ -2,11 +2,14 @@
 
 namespace Threads.Api.Models
 {
+
+
     public class UserProfile
     {
         [JsonPropertyName("data")]
         public Data Data { get; set; }
     }
+
 
     public class Data
     {
@@ -19,34 +22,54 @@ namespace Threads.Api.Models
         [JsonPropertyName("user")]
         public User User { get; set; }
     }
-
     public class User
     {
         [JsonPropertyName("is_private")]
-        public bool? Private { get; set; }
+        public bool IsPrivate { get; set; }
         [JsonPropertyName("profile_pic_url")]
         public string ProfilePicUrl { get; set; }
         [JsonPropertyName("username")]
-        public string Username { get; set; }
+        public string UserName { get; set; }
         [JsonPropertyName("hd_profile_pic_versions")]
-        public string? HdProfilePicVersions { get; set; }
+        public Hd_Profile_Pic_Versions[] HDProfilePicVersions { get; set; }
         [JsonPropertyName("is_verified")]
-        public bool? IsVerified { get; set; }
+        public bool IsVerified { get; set; }
         [JsonPropertyName("biography")]
-        public string? Bio { get; set; }
+        public string Biography { get; set; }
         [JsonPropertyName("biography_with_entities")]
-        public string? BioWithEntities { get; set; }
+        public object BiographyWithEntities { get; set; }
         [JsonPropertyName("follower_count")]
-        public string? Followers { get; set; }
-        //[JsonPropertyName("username")]
+        public int FollowerCount { get; set; }
+        //[JsonPropertyName("profile_context_facepile_users")]
         //public object profile_context_facepile_users { get; set; }
-        //[JsonPropertyName("bio_links")]
-        //public object bio_links { get; set; }
+        [JsonPropertyName("bio_links")]
+        public Bio_Links[] BioLinks { get; set; }
         [JsonPropertyName("pk")]
-        public string? UserId { get; set; }
+        public string PrimaryKey { get; set; }
         [JsonPropertyName("full_name")]
         public string? FullName { get; set; }
-        //[JsonPropertyName("username")]
-        //public object id { get; set; }
+        [JsonPropertyName("id")]
+        public object Id { get; set; }
     }
+
+    public class Hd_Profile_Pic_Versions
+    {
+        public int height { get; set; }
+        public string url { get; set; }
+        public int width { get; set; }
+    }
+
+    public class Bio_Links
+    {
+        public string url { get; set; }
+    }
+
+    public class Extensions
+    {
+        public bool is_final { get; set; }
+    }
+
+
+
+   
 }
