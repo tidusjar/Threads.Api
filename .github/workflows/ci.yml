@@ -53,5 +53,8 @@ jobs:
         name: package
         path: artifacts
 
-    - name: Publish
-      run: dotnet nuget push artifacts/*.nupkg
+    - name: Publish Nuget
+      run: dotnet nuget push artifacts/*.nupkg --source https://api.nuget.org/v3/index.json --api-key ${{secrets.NUGET_API}}
+
+    - name: Publish Github Nuget
+      run: dotnet nuget push artifacts/*.nupkg --source https://nuget.pkg.github.com/tidusjar/index.json
