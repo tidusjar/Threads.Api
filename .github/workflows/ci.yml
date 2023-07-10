@@ -20,6 +20,7 @@ jobs:
       uses: actions/setup-dotnet@v3
       with:
         dotnet-version: 7.0.x
+
     - name: Restore dependencies
       run: dotnet restore ./src/Threads.Api.sln
     - name: Build
@@ -33,28 +34,3 @@ jobs:
       with:
         name: package
         path: ./artifacts/*.nupkg
-
-  publish:
-    needs: [build]
-    # Only trigger the publish on tag
-    if: github.event_name == 'push' && contains(github.ref, 'refs/tags/')
-    runs-on: ubuntu-latest
-
-    steps:
-    - uses: actions/setup-dotnet@v3
-      with:
-        dotnet-version: '7.0.x' # SDK Version to use.
-        source-url: https://nuget.pkg.github.com/tidusjar/index.json
-      env:
-        NUGET_AUTH_TOKEN: ${{secrets.GITHUB_TOKEN}}
-
-    - uses: actions/download-artifact@v3
-      with:
-        name: package
-        path: artifacts
-
-    - name: Publish Nuget
-      run: dotnet nuget push artifacts/*.nupkg --source https://api.nuget.org/v3/index.json --api-key ${{secrets.NUGET_API}}
-
-    - name: Publish Github Nuget
-      run: dotnet nuget push artifacts/*.nupkg --source https://nuget.pkg.github.com/tidusjar/index.json
