@@ -9,7 +9,29 @@
 		<Description>An unofficial Threads.Net API</Description>
 		<PackageProjectUrl>https://github.com/tidusjar/Threads.Net</PackageProjectUrl>
 		<PackageVersion>1.1.0-alpha</PackageVersion>
+		<PackageLicenseFile>LICENSE.txt</PackageLicenseFile>
+		<PackageTags>Threads; twitter; meta; insta; api; threads.net; instagram</PackageTags>
+		<RepositoryUrl>https://github.com/tidusjar/Threads.Api/</RepositoryUrl>
+		<PackageReadmeFile>README.md</PackageReadmeFile>
+		<PackageIcon>threads-logo.png</PackageIcon>
+		<Company>TidusJar</Company>
+		<Authors>TidusJar</Authors>
 	</PropertyGroup>
+
+	<ItemGroup>
+	  <None Include="..\..\assets\threads-logo.png">
+	    <Pack>True</Pack>
+	    <PackagePath>\</PackagePath>
+	  </None>
+	  <None Include="..\..\LICENSE.txt">
+	    <Pack>True</Pack>
+	    <PackagePath>\</PackagePath>
+	  </None>
+	  <None Include="..\..\README.md">
+	    <Pack>True</Pack>
+	    <PackagePath>\</PackagePath>
+	  </None>
+	</ItemGroup>
 
 	<ItemGroup>
 	  <PackageReference Include="Microsoft.AspNetCore.WebUtilities" Version="2.2.0" />
