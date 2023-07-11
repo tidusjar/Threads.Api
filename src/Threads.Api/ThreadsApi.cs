@@ -112,7 +112,6 @@ public class ThreadsApi : IThreadsApi
 
     public async Task<UserThreads> GetThreadsAsync(string username, int userId, CancellationToken cancellationToken = default)
     {
-        // TODO
         if (string.IsNullOrEmpty(username))
         {
             throw new ArgumentNullException(username);
@@ -169,12 +168,10 @@ public class ThreadsApi : IThreadsApi
             },
             server_params = new
             {
-                credentail_type = "password",
+                credential_type = "password",
                 device_id = deviceId,
             }
         });
-
-
         var blockVersion = "5f56efad68e1edec7801f630b5c122704ec5378adbee6609a448f105f34a9c73";
 
         var bkClientContext = JsonSerializer.Serialize(new
@@ -183,26 +180,22 @@ public class ThreadsApi : IThreadsApi
             styles_id = "instagram"
         });
 
-
         var request = new HttpRequestMessage(HttpMethod.Post, new Uri(LoginUrl));
         var content = new StringContent($"params={body}&bk_client_context={bkClientContext}&bloks_versioning_id={blockVersion}");
 
-        //var form = new Dictionary<string, string>
-        //{
-        //    { "params", body },
-        //    { "bk_client_context", bkClientContext },
-        //    { "bloks_versioning_id", blockVersion },
-        //};
-
-        //var content = new FormUrlEncodedContent(form);
         GetAppHeaders(request);
         request.Content = content;
         request.Content.Headers.Clear();
-        request.Content.Headers.Add("Content-Type", "application/x-www-form-urlencoded; charset=UTF-8");
+        request.Content.Headers.Add("Content-Type", "application/x-www-form-urlencoded");
+        request.Content.Headers.Add("Response-Type", "text");
 
         var response = await _client.SendAsync(request, cancellationToken).ConfigureAwait(false);
-        var s = await response.Content.ReadAsStringAsync().ConfigureAwait(false);
-        return s;
+        var data = await response.Content.ReadAsStringAsync().ConfigureAwait(false);
+
+        var token = data.Split(new[] { "Bearer IGT:2:" }, StringSplitOptions.None)[1]
+                   .Split('"')[0]
+                   .Replace("\\", "");
+        return token;
     }
 
     private void GetDefaultHeaders(string username, HttpRequestMessage request)
