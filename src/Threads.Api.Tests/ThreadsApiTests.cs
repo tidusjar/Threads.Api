@@ -1,5 +1,4 @@
 using System.Net;
-using System.Reflection;
 using Threads.Api.Exceptions;
 
 namespace Threads.Api.Tests;
@@ -37,12 +36,8 @@ public class ThreadsApiTests
 
         Assert.Multiple(() =>
         {
-            Assert.That(response, Is.EqualTo(999));
-
-            PropertyInfo tokenProp = _subject.GetType().GetProperty("FbLSDToken", BindingFlags.NonPublic | BindingFlags.Instance);
-            MethodInfo strGetter = tokenProp.GetGetMethod(nonPublic: true);
-            string val = (string)strGetter.Invoke(_subject, null);
-            Assert.That(val, Is.EqualTo("LSD_yo"));
+            Assert.That(response.UserId, Is.EqualTo(999));
+            Assert.That(response.Token, Is.EqualTo("LSD_yo"));
         });
     }
 
