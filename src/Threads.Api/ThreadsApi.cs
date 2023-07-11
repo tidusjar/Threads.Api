@@ -8,17 +8,9 @@ using System.Threading;
 using System.Threading.Tasks;
 using Threads.Api.Exceptions;
 using Threads.Api.Models;
+using Threads.Api.Models.Response;
 
 namespace Threads.Api;
-
-public interface IThreadsApi
-{
-    Task<int> GetUserIdFromUserNameAsync(string username, CancellationToken cancellationToken = default);
-    Task<User?> GetUserProfileAsync(string username, int userId, CancellationToken cancellationToken = default);
-    Task<UserThreads> GetThreadsAsync(string username, int userId, CancellationToken cancellationToken = default);
-    Task<UserReplies> GetUserRepliesAsync(string username, int userId, CancellationToken cancellationToken = default);
-    Task<string> GetTokenAsync(string username, string password, CancellationToken cancellationToken = default);
-}
 
 public class ThreadsApi : IThreadsApi
 {
@@ -28,15 +20,13 @@ public class ThreadsApi : IThreadsApi
     private const string BaseApiUrl = "https://i.instagram.com/api/v1";
     private readonly string LoginUrl = $"{BaseApiUrl}/bloks/apps/com.bloks.www.bloks.caa.login.async.send_login_request/";
 
-    private string AuthToken { get; set; }
-    private string FbLSDToken { get; set; } = string.Empty;
-
     public ThreadsApi(HttpClient httpClient)
     {
         _client = httpClient ?? throw new ArgumentNullException(nameof(httpClient));
     }
 
-    public async Task<int> GetUserIdFromUserNameAsync(string username, CancellationToken cancellationToken = default)
+    /// <inheritdoc/>
+    public async Task<UserIdResponse> GetUserIdFromUserNameAsync(string username, CancellationToken cancellationToken = default)
     {
         if (string.IsNullOrWhiteSpace(username))
         {
@@ -44,7 +34,7 @@ public class ThreadsApi : IThreadsApi
         }
 
         var request = new HttpRequestMessage(HttpMethod.Get, $"{_url}@{username}");
-        GetDefaultHeaders(username, request);
+        GetDefaultHeaders(token, request);
 
         request.Headers.Add("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7");
         request.Headers.Add("Accept-Language", "ko,en;q=0.9,ko-KR;q=0.8,ja;q=0.7");
@@ -72,35 +62,40 @@ public class ThreadsApi : IThreadsApi
         {
             throw new UserNotFoundException(username);
         }
-        FbLSDToken = lsdToken;
 
         if (int.TryParse(userID, out int value))
         {
-            return value;
+            return new UserIdResponse
+            {
+                Token = lsdToken,
+                UserId = value
+            };
         }
 
         throw new UserNotFoundException(username);
     }
 
-    public async Task<User?> GetUserProfileAsync(string username, int userId, CancellationToken cancellationToken = default)
+
+    /// <inheritdoc/>
+    public async Task<User?> GetUserProfileAsync(string username, int userId, string token, CancellationToken cancellationToken = default)
     {
         if (string.IsNullOrEmpty(username))
         {
             throw new ArgumentNullException(username);
         }
-        if (string.IsNullOrWhiteSpace(FbLSDToken) || userId <= 0)
+        if (string.IsNullOrWhiteSpace(token) || userId <= 0)
         {
-            throw new InvalidStateException();
+            throw new ArgumentNullException(token);
         }
 
         var param = new Dictionary<string, string> {
-            { "lsd", FbLSDToken },
+            { "lsd", token },
             { "variables", $"{{\"userID\":\"{userId}\"}}" },
             { "doc_id", "23996318473300828" },
         };
 
         var request = new HttpRequestMessage(HttpMethod.Post, new Uri(QueryHelpers.AddQueryString(_graphUrl, param)));
-        GetDefaultHeaders(username, request);
+        GetDefaultHeaders(token, request);
         request.Headers.Add("x-fb-friendly-name", "BarcelonaProfileRootQuery");
 
         var response = await _client.SendAsync(request, cancellationToken).ConfigureAwait(false);
@@ -110,25 +105,27 @@ public class ThreadsApi : IThreadsApi
         return profile?.Data?.UserData?.User;
     }
 
-    public async Task<UserThreads> GetThreadsAsync(string username, int userId, CancellationToken cancellationToken = default)
+
+    /// <inheritdoc/>
+    public async Task<UserThreads> GetThreadsAsync(string username, int userId, string token, CancellationToken cancellationToken = default)
     {
         if (string.IsNullOrEmpty(username))
         {
             throw new ArgumentNullException(username);
         }
-        if (string.IsNullOrWhiteSpace(FbLSDToken) || userId <= 0)
+        if (string.IsNullOrWhiteSpace(token) || userId <= 0)
         {
-            throw new InvalidStateException();
+            throw new ArgumentNullException(token);
         }
 
         var param = new Dictionary<string, string> {
-            { "lsd", FbLSDToken },
+            { "lsd", token },
             { "variables", $"{{\"userID\":\"{userId}\"}}" },
             { "doc_id", "6232751443445612" },
         };
 
         var request = new HttpRequestMessage(HttpMethod.Post, new Uri(QueryHelpers.AddQueryString(_graphUrl, param)));
-        GetDefaultHeaders(username, request);
+        GetDefaultHeaders(token, request);
         request.Headers.Add("x-fb-friendly-name", "BarcelonaProfileThreadsTabQuery");
 
         var response = await _client.SendAsync(request, cancellationToken).ConfigureAwait(false);
@@ -137,16 +134,27 @@ public class ThreadsApi : IThreadsApi
         return threads;
     }
 
-    public async Task<UserReplies> GetUserRepliesAsync(string username, int userId, CancellationToken cancellationToken = default)
+
+    /// <inheritdoc/>
+    public async Task<UserReplies> GetUserRepliesAsync(string username, int userId, string token, CancellationToken cancellationToken = default)
     {
+        if (string.IsNullOrEmpty(username))
+        {
+            throw new ArgumentNullException(username);
+        }
+        if (string.IsNullOrWhiteSpace(token) || userId <= 0)
+        {
+            throw new ArgumentNullException(token);
+        }
+
         var param = new Dictionary<string, string> {
-            { "lsd", FbLSDToken },
+            { "lsd", token },
             { "variables", $"{{\"userID\":\"{userId}\"}}" },
             { "doc_id", "6684830921547925" },
         };
 
         var request = new HttpRequestMessage(HttpMethod.Post, new Uri(QueryHelpers.AddQueryString(_graphUrl, param)));
-        GetDefaultHeaders(username, request);
+        GetDefaultHeaders(token, request);
         request.Headers.Add("x-fb-friendly-name", "BarcelonaProfileThreadsTabQuery");
         var response = await _client.SendAsync(request, cancellationToken).ConfigureAwait(false);
         var stream = await response.Content.ReadAsStreamAsync().ConfigureAwait(false);
@@ -154,6 +162,8 @@ public class ThreadsApi : IThreadsApi
         return replies;
     }
 
+
+    /// <inheritdoc/>
     public async Task<string> GetTokenAsync(string username, string password, CancellationToken cancellationToken = default)
     {
         var deviceId = "android-1vp2aultsmo00000";
@@ -198,23 +208,23 @@ public class ThreadsApi : IThreadsApi
         return token;
     }
 
-    private void GetDefaultHeaders(string username, HttpRequestMessage request)
+    private void GetDefaultHeaders(string token, HttpRequestMessage request)
     {
         GetAppHeaders(request);
         request.Headers.Add("Authority", "www.threads.net");
         request.Headers.Add("Cache-Control", "no-cache");
         request.Headers.Add("Origin", "https://www.threads.net");
-        request.Headers.Add("x-fb-lsd", this.FbLSDToken);
+        request.Headers.Add("x-fb-lsd", token);
     }
 
-    private void GetAppHeaders(HttpRequestMessage request)
+    private void GetAppHeaders(HttpRequestMessage request, string authToken = default)
     {
         request.Headers.Clear();
         request.Headers.Add("Accept", "*/*");
         request.Headers.Add("User-Agent", "Barcelona 289.0.0.77.109 Android");
-        if (!string.IsNullOrWhiteSpace(AuthToken))
+        if (!string.IsNullOrWhiteSpace(authToken))
         {
-            request.Headers.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", $"IGT:2:{AuthToken}");
+            request.Headers.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", $"IGT:2:{authToken}");
         }
     }
 

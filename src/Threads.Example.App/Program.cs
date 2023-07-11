@@ -12,15 +12,15 @@ namespace Threads.Example.App
 
             var username = "tidusjar";
 
-            var userId = await api.GetUserIdFromUserNameAsync(username);
-            Console.WriteLine(userId);
-            var userProfile = await api.GetUserProfileAsync(username, userId);
+            var response = await api.GetUserIdFromUserNameAsync(username);
+            Console.WriteLine(response.UserId);
+            var userProfile = await api.GetUserProfileAsync(username, response.UserId, response.Token);
 
             Console.WriteLine(userProfile?.UserName);
 
-            var threads = await api.GetThreadsAsync(username, userId);
+            var threads = await api.GetThreadsAsync(username, response.UserId, response.Token);
 
-            var replies = await api.GetUserRepliesAsync(username, userId);
+            var replies = await api.GetUserRepliesAsync(username, response.UserId, response.Token);
 
             var token = await api.GetTokenAsync("tidusjar", "pass");
 
