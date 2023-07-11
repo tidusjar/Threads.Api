@@ -59,8 +59,28 @@ public interface IThreadsApi
     /// </summary>
     /// <param name="userId">UserId for the user from <see cref="GetUserIdFromUserNameAsync"/></param>
     /// <param name="message">Message you want to post</param>
-    /// <param name="authToken">The authentication token from <see cref="GetTokenAsync(string, string, CancellationToken)"</param>
+    /// <param name="authToken">The authentication token from <see cref="GetTokenAsync"/></param>
     /// <param name="cancellationToken"><see cref="CancellationToken"/></param>
     /// <returns>ID of the post</returns>
     Task<string> PostAsync(string userId, string message, string authToken, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Follows a user
+    /// </summary>
+    /// <param name="userId">The UserId to follow from <see cref="GetUserIdFromUserNameAsync"/></param>
+    /// <param name="token">Token returned from <see cref="GetUserIdFromUserNameAsync"/></param>
+    /// <param name="authToken">The authentication token from <see cref="GetTokenAsync"/></param>
+    /// <param name="cancellationToken"><see cref="CancellationToken"/></param>
+    /// <returns>true if success else false</returns>
+    Task<bool> FollowAsync(int userId, string token, string authToken, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// UnFollows a user
+    /// </summary>
+    /// <param name="userId">The UserId to unfollow from <see cref="GetUserIdFromUserNameAsync"/></param>
+    /// <param name="token">Token returned from <see cref="GetUserIdFromUserNameAsync"/></param>
+    /// <param name="authToken">The authentication token from <see cref="GetTokenAsync"/></param>
+    /// <param name="cancellationToken"><see cref="CancellationToken"/></param>
+    /// <returns>true if success else false</returns>
+    Task<bool> UnFollowAsync(int userId, string token, string authToken, CancellationToken cancellationToken = default);
 }

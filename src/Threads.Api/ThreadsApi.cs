@@ -3,7 +3,6 @@ using System;
 using System.Collections.Generic;
 using System.Net.Http;
 using System.Text.Json;
-using System.Text.Json.Serialization;
 using System.Text.RegularExpressions;
 using System.Threading;
 using System.Threading.Tasks;
@@ -43,7 +42,7 @@ public class ThreadsApi : IThreadsApi
         request.Headers.Add("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7");
         request.Headers.Add("Accept-Language", "ko,en;q=0.9,ko-KR;q=0.8,ja;q=0.7");
         request.Headers.Add("Pragma", "no-cache");
-        request.Headers.Add("Referer", $"https://www.threads.net/@${username}");
+        request.Headers.Add("Referer", $"https://www.instagram.com/@${username}");
         request.Headers.Add("Sec-Detch-Dest", "document");
         request.Headers.Add("Sec-Detch-Mode", "navigate");
         request.Headers.Add("Sec-Detch-Site", "cross-site");
@@ -219,6 +218,7 @@ public class ThreadsApi : IThreadsApi
         return token;
     }
 
+    /// <inheritdoc/>
     public async Task<string> PostAsync(string username, string message, string authToken, CancellationToken cancellationToken = default)
     {
         if (string.IsNullOrEmpty(username))
@@ -277,13 +277,48 @@ public class ThreadsApi : IThreadsApi
         return postData?.media?.id;
     }
 
-    private void GetDefaultHeaders(string token, HttpRequestMessage request)
+    /// <inheritdoc/>
+    public Task<bool> FollowAsync(int userId, string token, string authToken, CancellationToken cancellationToken = default)
     {
-        GetAppHeaders(request);
+        var followUrl = $"{BaseApiUrl}/friendships/create/{userId}/";
+        return FollowUnfollowInternal(followUrl, userId, token, authToken, cancellationToken);
+    }
+
+    /// <inheritdoc/>
+    public Task<bool> UnFollowAsync(int userId, string token, string authToken, CancellationToken cancellationToken = default)
+    {
+        var url = $"{BaseApiUrl}/friendships/destroy/{userId}/";
+        return FollowUnfollowInternal(url, userId, token, authToken, cancellationToken);
+    }
+
+    private async Task<bool> FollowUnfollowInternal(string url, int userId, string token, string authToken, CancellationToken cancellationToken = default)
+    {
+        if (userId <= 0)
+        {
+            throw new ArgumentNullException(nameof(userId));
+        }
+
+        var request = new HttpRequestMessage(HttpMethod.Post, url);
+        GetDefaultHeaders(token, request, authToken);
+        request.Headers.Add("referrer", "https://www.threads.net/@tidusjar");
+
+        var response = await _client.SendAsync(request, cancellationToken).ConfigureAwait(false);
+
+        var stream = await response.Content.ReadAsStreamAsync().ConfigureAwait(false);
+        var data = await JsonSerializer.DeserializeAsync<GenericResponse>(stream).ConfigureAwait(false);
+
+        return data?.IsSuccess ?? false;
+    }
+
+    private void GetDefaultHeaders(string token, HttpRequestMessage request, string authToken = default)
+    {
+        GetAppHeaders(request, authToken);
         request.Headers.Add("Authority", "www.threads.net");
         request.Headers.Add("Cache-Control", "no-cache");
         request.Headers.Add("Origin", "https://www.threads.net");
         request.Headers.Add("x-fb-lsd", token);
+        request.Headers.Add("x-asbd-id", "129477");
+        request.Headers.Add("x-ig-app-id", "238260118697367");
     }
 
     private void GetAppHeaders(HttpRequestMessage request, string authToken = default)
@@ -296,5 +331,4 @@ public class ThreadsApi : IThreadsApi
             request.Headers.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", $"IGT:2:{authToken}");
         }
     }
-
 }

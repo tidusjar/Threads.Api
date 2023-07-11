@@ -52,4 +52,33 @@ public class ThreadsApiTests
 
         Assert.ThrowsAsync<UserNotFoundException>(async () => await _subject.GetUserIdFromUserNameAsync("user"));
     }
+
+    [TestCase(null, 1, "a")]
+    [TestCase("", 1, "a")]
+    [TestCase("a", 0, "a")]
+    [TestCase("a", 1, "")]
+    [TestCase("a", 1, null)]
+    public void GetUserProfileAsyncTest_InvalidFields(string username, int userId, string token)
+    {
+        Assert.ThrowsAsync<ArgumentNullException>(async () => await _subject.GetUserProfileAsync(username, userId, token));
+    }
+
+    [Test]
+    public async Task GetUserProfileAsyncTest()
+    {
+        _mocker.Setup<HttpClient, Task<HttpResponseMessage>>(x => x.SendAsync(It.IsAny<HttpRequestMessage>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StringContent("{\"data\": {\"userData\": " +
+                "{ \"user\": { \"username\": \"unittest\", \"profile_pic_url\":\"1\", \"biography\":\"hi\" } } } }")
+            });
+
+        var response = await _subject.GetUserProfileAsync("username", 100, "token");
+        Assert.Multiple(() =>
+        {
+            Assert.That(response.UserName, Is.EqualTo("unittest"));
+            Assert.That(response.ProfilePicUrl, Is.EqualTo("1"));
+            Assert.That(response.Biography, Is.EqualTo("hi"));
+        });
+    }
 }
