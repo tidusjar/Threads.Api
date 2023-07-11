@@ -3,6 +3,7 @@ using System;
 using System.Collections.Generic;
 using System.Net.Http;
 using System.Text.Json;
+using System.Text.Json.Serialization;
 using System.Text.RegularExpressions;
 using System.Threading;
 using System.Threading.Tasks;
@@ -18,7 +19,10 @@ public class ThreadsApi : IThreadsApi
     private const string _url = "https://www.threads.net/";
     private const string _graphUrl = "https://www.threads.net/api/graphql";
     private const string BaseApiUrl = "https://i.instagram.com/api/v1";
+    private const string _deviceId = "android-1vp2aultsmo00000";
+
     private readonly string LoginUrl = $"{BaseApiUrl}/bloks/apps/com.bloks.www.bloks.caa.login.async.send_login_request/";
+    private readonly string PostUrl = $"{BaseApiUrl}/media/configure_text_only_post/";
 
     public ThreadsApi(HttpClient httpClient)
     {
@@ -34,7 +38,7 @@ public class ThreadsApi : IThreadsApi
         }
 
         var request = new HttpRequestMessage(HttpMethod.Get, $"{_url}@{username}");
-        GetDefaultHeaders(token, request);
+        GetDefaultHeaders(null, request);
 
         request.Headers.Add("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7");
         request.Headers.Add("Accept-Language", "ko,en;q=0.9,ko-KR;q=0.8,ja;q=0.7");
@@ -166,7 +170,14 @@ public class ThreadsApi : IThreadsApi
     /// <inheritdoc/>
     public async Task<string> GetTokenAsync(string username, string password, CancellationToken cancellationToken = default)
     {
-        var deviceId = "android-1vp2aultsmo00000";
+        if (string.IsNullOrEmpty(username))
+        {
+            throw new ArgumentNullException(username);
+        }
+        if (string.IsNullOrWhiteSpace(password))
+        {
+            throw new ArgumentNullException(password);
+        }
 
         var body = JsonSerializer.Serialize(new
         {
@@ -174,12 +185,12 @@ public class ThreadsApi : IThreadsApi
             {
                 password = password,
                 contact_point = username,
-                device_id = deviceId
+                device_id = _deviceId
             },
             server_params = new
             {
                 credential_type = "password",
-                device_id = deviceId,
+                device_id = _deviceId,
             }
         });
         var blockVersion = "5f56efad68e1edec7801f630b5c122704ec5378adbee6609a448f105f34a9c73";
@@ -206,6 +217,64 @@ public class ThreadsApi : IThreadsApi
                    .Split('"')[0]
                    .Replace("\\", "");
         return token;
+    }
+
+    public async Task<string> PostAsync(string username, string message, string authToken, CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrEmpty(username))
+        {
+            throw new ArgumentNullException(username);
+        }
+        if (string.IsNullOrWhiteSpace(message))
+        {
+            throw new ArgumentNullException(message);
+        }
+        if (string.IsNullOrWhiteSpace(authToken))
+        {
+            throw new ArgumentNullException(authToken);
+        }
+
+        var now = DateTime.Now;
+        var userId = await GetUserIdFromUserNameAsync(username, cancellationToken);
+        var data = new
+        {
+            text_post_app_info = new { reply_control = 0 },
+            timezone_offset = "3600",
+            source_type = '4',
+            _uid = userId.UserId,
+            device_id = _deviceId,
+            caption = message,
+            upload_id = now.Millisecond.ToString(),
+            device = new
+            {
+                manufacturer = "OnePlus",
+                model = "ONEPLUS+A3010",
+                os_version = 25,
+                os_release = "7.1.1",
+            },
+            publish_mode = "text_post"
+        };
+
+        // TODO Image
+        // TODO Parent Thread/Post
+
+        var payload = $"signed_body=SIGNATURE.{JsonSerializer.Serialize(data)}";
+
+        var request = new HttpRequestMessage(HttpMethod.Post, new Uri(PostUrl))
+        {
+            Content = new StringContent(payload)
+        };
+        GetAppHeaders(request, authToken);
+        request.Content.Headers.Clear();
+        request.Content.Headers.Add("Content-Type", "application/x-www-form-urlencoded");
+        request.Content.Headers.Add("Response-Type", "text");
+
+        var response = await _client.SendAsync(request, cancellationToken).ConfigureAwait(false);
+
+        var stream = await response.Content.ReadAsStreamAsync().ConfigureAwait(false);
+        var postData = await JsonSerializer.DeserializeAsync<PostResponse>(stream).ConfigureAwait(false);
+
+        return postData?.media?.id;
     }
 
     private void GetDefaultHeaders(string token, HttpRequestMessage request)

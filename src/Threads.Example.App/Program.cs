@@ -23,7 +23,7 @@ namespace Threads.Example.App
             var replies = await api.GetUserRepliesAsync(username, response.UserId, response.Token);
 
             var token = await api.GetTokenAsync("tidusjar", "pass");
-
+            await api.PostAsync("tidusjar", "Hello!", token);
         }
     }
 }

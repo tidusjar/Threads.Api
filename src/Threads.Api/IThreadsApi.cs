@@ -53,4 +53,14 @@ public interface IThreadsApi
     /// <param name="cancellationToken"><see cref="CancellationToken"/></param>
     /// <returns>a authentication token</returns>
     Task<string> GetTokenAsync(string username, string password, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Posts a new thread
+    /// </summary>
+    /// <param name="userId">UserId for the user from <see cref="GetUserIdFromUserNameAsync"/></param>
+    /// <param name="message">Message you want to post</param>
+    /// <param name="authToken">The authentication token from <see cref="GetTokenAsync(string, string, CancellationToken)"</param>
+    /// <param name="cancellationToken"><see cref="CancellationToken"/></param>
+    /// <returns>ID of the post</returns>
+    Task<string> PostAsync(string userId, string message, string authToken, CancellationToken cancellationToken = default);
 }
