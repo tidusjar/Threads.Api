@@ -42,6 +42,8 @@ jobs:
       with:
         dotnet-version: '7.0.x' # SDK Version to use.
         source-url: https://nuget.pkg.github.com/tidusjar/index.json
+      env:
+        NUGET_AUTH_TOKEN: ${{secrets.GITHUB_TOKEN}}
 
     - uses: actions/download-artifact@v3
       with:
