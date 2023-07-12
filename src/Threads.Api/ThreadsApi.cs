@@ -1,23 +1,16 @@
 ﻿using Microsoft.AspNetCore.WebUtilities;
-using Org.BouncyCastle.Asn1.Pkcs;
-using Org.BouncyCastle.Crypto;
 using Org.BouncyCastle.Crypto.Engines;
-using Org.BouncyCastle.Crypto.Generators;
 using Org.BouncyCastle.Crypto.Modes;
 using Org.BouncyCastle.Crypto.Parameters;
-using Org.BouncyCastle.Math;
 using Org.BouncyCastle.Security;
-using Org.BouncyCastle.X509;
 using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Net.Http;
 using System.Security.Cryptography;
-using System.Security.Cryptography.X509Certificates;
 using System.Text;
 using System.Text.Json;
-using System.Text.Json.Serialization;
 using System.Text.RegularExpressions;
 using System.Threading;
 using System.Threading.Tasks;
@@ -27,7 +20,7 @@ using Threads.Api.Models.Response;
 
 namespace Threads.Api;
 
-public class ThreadsApi : IThreadsApi
+public partial class ThreadsApi : IThreadsApi
 {
     private readonly HttpClient _client;
     private const string _url = "https://www.threads.net/";
@@ -182,57 +175,6 @@ public class ThreadsApi : IThreadsApi
 
 
     /// <inheritdoc/>
-    public async Task<string> GetTokenAsync(string username, string password, CancellationToken cancellationToken = default)
-    {
-        if (string.IsNullOrEmpty(username))
-        {
-            throw new ArgumentNullException(username);
-        }
-        if (string.IsNullOrWhiteSpace(password))
-        {
-            throw new ArgumentNullException(password);
-        }
-
-        var body = JsonSerializer.Serialize(new
-        {
-            client_input_params = new
-            {
-                password = password,
-                contact_point = username,
-                device_id = _deviceId
-            },
-            server_params = new
-            {
-                credential_type = "password",
-                device_id = _deviceId,
-            }
-        });
-        var blockVersion = "5f56efad68e1edec7801f630b5c122704ec5378adbee6609a448f105f34a9c73";
-
-        var bkClientContext = JsonSerializer.Serialize(new
-        {
-            bloks_version = blockVersion,
-            styles_id = "instagram"
-        });
-
-        var request = new HttpRequestMessage(HttpMethod.Post, new Uri(LoginUrl));
-        var content = new StringContent($"params={body}&bk_client_context={bkClientContext}&bloks_versioning_id={blockVersion}");
-
-        GetAppHeaders(request);
-        request.Content = content;
-        request.Content.Headers.Clear();
-        request.Content.Headers.Add("Content-Type", "application/x-www-form-urlencoded");
-        request.Content.Headers.Add("Response-Type", "text");
-
-        var response = await _client.SendAsync(request, cancellationToken).ConfigureAwait(false);
-        var data = await response.Content.ReadAsStringAsync().ConfigureAwait(false);
-
-        var token = data.Split(new[] { "Bearer IGT:2:" }, StringSplitOptions.None)[1]
-                   .Split('"')[0]
-                   .Replace("\\", "");
-        return token;
-    }
-
     public async Task<LoginResult> LoginAsync(string username, string password, CancellationToken cancellationToken = default)
     {
         var encryptedPassword = await EncryptPasswordAsync(password);
@@ -281,117 +223,64 @@ public class ThreadsApi : IThreadsApi
 
 
         return new LoginResult { Token = token, UserId = userID };
-
-    }
-
-    public class LoginResult
-    {
-        public string Token { get; set; }
-        public string UserId { get; set; }
     }
 
 
-    public async Task<(string Time, string Password)> EncryptPasswordAsync2(string password)
+    static private readonly SecureRandom secureRandom = new SecureRandom();
+    private async Task<(long Time, string Password)> EncryptPasswordAsync(string password)
     {
-        var randKey = new byte[32];
-        using (var rng = new RNGCryptoServiceProvider())
-        {
-            rng.GetBytes(randKey);
-        }
+        // https://github.com/ramtinak/InstagramApiSharp/blob/master/src/InstagramApiSharp/API/InstaApi.cs#L959
+        var keys = await SyncLoginExperimentsAsync().ConfigureAwait(false);
+        var pubKey = keys.PublicKey;
+        var pubKeyId = keys.KeyId;
+        byte[] randKey = new byte[32];
+        byte[] iv = new byte[12];
+        secureRandom.NextBytes(randKey, 0, randKey.Length);
+        secureRandom.NextBytes(iv, 0, iv.Length);
+        long time = ToUnixTime(DateTime.UtcNow);
+        byte[] associatedData = Encoding.UTF8.GetBytes(time.ToString());
+        var pubKEY = Encoding.UTF8.GetString(Convert.FromBase64String(pubKey));
+        byte[] encryptedKey;
+        using (var rdr = PemKeyUtils.GetRSAProviderFromPemString(pubKEY.Trim()))
+            encryptedKey = rdr.Encrypt(randKey, false);
 
-        var iv = new byte[12];
-        using (var rng = new RNGCryptoServiceProvider())
-        {
-            rng.GetBytes(iv);
-        }
+        byte[] plaintext = Encoding.UTF8.GetBytes(password);
 
-
-        var keys = await SyncLoginExperimentsAsync();
-        var passwordEncryptionKeyId = int.Parse(keys.KeyId);
-        var passwordEncryptionPubKey = keys.PublicKey;
-
-
-
-
-        var rsaEncrypted = new byte[0];
-        var rsaKeyParameters = (RsaKeyParameters)PublicKeyFactory.CreateKey(Convert.FromBase64String(passwordEncryptionPubKey));
-        var rsaEngine = new RsaEngine();
-        rsaEngine.Init(true, rsaKeyParameters);
-        rsaEncrypted = rsaEngine.ProcessBlock(randKey, 0, randKey.Length);
-
-        var cipher = new GcmBlockCipher(new AesFastEngine());
-        var parameters = new AeadParameters(new KeyParameter(randKey), 128, iv, Encoding.UTF8.GetBytes(DateTimeOffset.UtcNow.ToUnixTimeSeconds().ToString()));
+        var cipher = new GcmBlockCipher(new AesEngine());
+        var parameters = new AeadParameters(new KeyParameter(randKey), 128, iv, associatedData);
         cipher.Init(true, parameters);
 
-        var aesEncrypted = new byte[cipher.GetOutputSize(Encoding.UTF8.GetByteCount(password))];
-        var len = cipher.ProcessBytes(Encoding.UTF8.GetBytes(password), 0, Encoding.UTF8.GetByteCount(password), aesEncrypted, 0);
-        cipher.DoFinal(aesEncrypted, len);
+        var ciphertext = new byte[cipher.GetOutputSize(plaintext.Length)];
+        var len = cipher.ProcessBytes(plaintext, 0, plaintext.Length, ciphertext, 0);
+        cipher.DoFinal(ciphertext, len);
 
-        var sizeBuffer = BitConverter.GetBytes((short)rsaEncrypted.Length);
+        var con = new byte[plaintext.Length];
+        for (int i = 0; i < plaintext.Length; i++)
+            con[i] = ciphertext[i];
+        ciphertext = con;
+        var tag = cipher.GetMac();
 
+        byte[] buffersSize = BitConverter.GetBytes(Convert.ToInt16(encryptedKey.Length));
+        byte[] encKeyIdBytes = BitConverter.GetBytes(Convert.ToUInt16(pubKeyId));
+        if (BitConverter.IsLittleEndian)
+            Array.Reverse(encKeyIdBytes);
+        encKeyIdBytes[0] = 1;
+        var payload = Convert.ToBase64String(encKeyIdBytes.Concat(iv).Concat(buffersSize).Concat(encryptedKey).Concat(tag).Concat(ciphertext).ToArray());
 
-        return (DateTimeOffset.UtcNow.ToUnixTimeSeconds().ToString(), Convert.ToBase64String(
-                new byte[] { 1, (byte)passwordEncryptionKeyId }
-                .Concat(iv)
-                .Concat(sizeBuffer)
-                .Concat(rsaEncrypted)
-                .Concat(cipher.GetMac())
-                .Concat(aesEncrypted)
-                .ToArray()));
+        return (time, payload);
     }
 
-    private async Task<(string Time, string Password)> EncryptPasswordAsync(string password, CancellationToken cancellationToken = default)
+    private static readonly DateTime UnixEpoch = new DateTime(1970, 1, 1, 0, 0, 0, DateTimeKind.Utc);
+    public static long ToUnixTime(DateTime date)
     {
-        var randKey = new byte[32];
-        using (var rng = new RNGCryptoServiceProvider())
+        try
         {
-            rng.GetBytes(randKey);
+            return Convert.ToInt64((date - UnixEpoch).TotalSeconds);
         }
-
-        var iv = new byte[12];
-        using (var rng = new RNGCryptoServiceProvider())
+        catch
         {
-            rng.GetBytes(iv);
+            return 0;
         }
-        var keys = await SyncLoginExperimentsAsync(cancellationToken);
-        var rsaEncrypted = RSAEncrypt(randKey, keys.PublicKey);
-        var cipher = new GcmBlockCipher(new AesEngine());
-        var time = Math.Floor((double)DateTimeOffset.UtcNow.ToUnixTimeSeconds()).ToString();
-        cipher.Init(true, new AeadParameters(new KeyParameter(randKey), 128, iv, Encoding.UTF8.GetBytes(time)));
-        var aesEncrypted = new byte[cipher.GetOutputSize(Encoding.UTF8.GetByteCount(password))];
-        var len = cipher.ProcessBytes(Encoding.UTF8.GetBytes(password), 0, Encoding.UTF8.GetByteCount(password), aesEncrypted, 0);
-        cipher.DoFinal(aesEncrypted, len);
-
-        var sizeBuffer = new byte[2];
-        Buffer.BlockCopy(BitConverter.GetBytes((short)rsaEncrypted.Length), 0, sizeBuffer, 0, 2);
-
-        var authTag = cipher.GetMac();
-
-        var passwordBytes = new byte[1 + 4 + 12 + 2 + rsaEncrypted.Length + 16 + aesEncrypted.Length];
-        passwordBytes[0] = 1;
-        Buffer.BlockCopy(BitConverter.GetBytes(int.Parse(keys.KeyId)), 0, passwordBytes, 1, 4);
-        Buffer.BlockCopy(iv, 0, passwordBytes, 5, 12);
-        Buffer.BlockCopy(sizeBuffer, 0, passwordBytes, 17, 2);
-        Buffer.BlockCopy(rsaEncrypted, 0, passwordBytes, 19, rsaEncrypted.Length);
-        Buffer.BlockCopy(authTag, 0, passwordBytes, 19 + rsaEncrypted.Length, 16);
-        Buffer.BlockCopy(aesEncrypted, 0, passwordBytes, 19 + rsaEncrypted.Length + 16, aesEncrypted.Length);
-
-        return (time, Convert.ToBase64String(passwordBytes));
-    }
-
-    private byte[] RSAEncrypt(byte[] data, string publicKey)
-    {
-        var rsa = new RSACryptoServiceProvider();
-        var keyBytes = Convert.FromBase64String(publicKey);
-        var pemReader = new Org.BouncyCastle.OpenSsl.PemReader(new StreamReader(new MemoryStream(keyBytes)));
-        var publicKeyParams = (Org.BouncyCastle.Crypto.Parameters.RsaKeyParameters)pemReader.ReadObject();
-        var rsaParameters = new RSAParameters
-        {
-            Modulus = publicKeyParams.Modulus.ToByteArrayUnsigned(),
-            Exponent = publicKeyParams.Exponent.ToByteArrayUnsigned()
-        };
-        rsa.ImportParameters(rsaParameters);
-        return rsa.Encrypt(data, RSAEncryptionPadding.Pkcs1);
     }
 
     private async Task<(string KeyId, string PublicKey)> SyncLoginExperimentsAsync(CancellationToken cancellationToken = default)
