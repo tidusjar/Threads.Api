@@ -1,8 +1,23 @@
 ﻿using Microsoft.AspNetCore.WebUtilities;
+using Org.BouncyCastle.Asn1.Pkcs;
+using Org.BouncyCastle.Crypto;
+using Org.BouncyCastle.Crypto.Engines;
+using Org.BouncyCastle.Crypto.Generators;
+using Org.BouncyCastle.Crypto.Modes;
+using Org.BouncyCastle.Crypto.Parameters;
+using Org.BouncyCastle.Math;
+using Org.BouncyCastle.Security;
+using Org.BouncyCastle.X509;
 using System;
 using System.Collections.Generic;
+using System.IO;
+using System.Linq;
 using System.Net.Http;
+using System.Security.Cryptography;
+using System.Security.Cryptography.X509Certificates;
+using System.Text;
 using System.Text.Json;
+using System.Text.Json.Serialization;
 using System.Text.RegularExpressions;
 using System.Threading;
 using System.Threading.Tasks;
@@ -216,6 +231,215 @@ public class ThreadsApi : IThreadsApi
                    .Split('"')[0]
                    .Replace("\\", "");
         return token;
+    }
+
+    public async Task<LoginResult> LoginAsync(string username, string password, CancellationToken cancellationToken = default)
+    {
+        var encryptedPassword = await EncryptPasswordAsync(password);
+
+        var requestBody = new
+        {
+            client_input_params = new
+            {
+                password = $"#PWD_INSTAGRAM:4:{encryptedPassword.Time}:{encryptedPassword.Password}",
+                contact_point = username,
+                device_id = _deviceId
+            },
+            server_params = new
+            {
+                credential_type = "password",
+                device_id = _deviceId
+            }
+        };
+
+        var json = JsonSerializer.Serialize(requestBody);
+        var param = Uri.EscapeDataString(json);
+
+        var blockVersion = "5f56efad68e1edec7801f630b5c122704ec5378adbee6609a448f105f34a9c73";
+
+        var bkClientContext = JsonSerializer.Serialize(new
+        {
+            bloks_version = blockVersion,
+            styles_id = "instagram"
+        });
+
+        var request = new HttpRequestMessage(HttpMethod.Post, new Uri(LoginUrl));
+        var content = new StringContent($"params={param}&bk_client_context={Uri.EscapeDataString(bkClientContext)}&bloks_versioning_id={blockVersion}");
+
+        GetAppHeaders(request);
+        request.Content = content;
+        request.Content.Headers.Clear();
+        request.Content.Headers.Add("Content-Type", "application/x-www-form-urlencoded");
+        request.Content.Headers.Add("Response-Type", "text");
+
+        var response = await _client.SendAsync(request, cancellationToken).ConfigureAwait(false);
+        var data = await response.Content.ReadAsStringAsync().ConfigureAwait(false);
+
+
+        var token = data.Split("Bearer IGT:2:")[1].Split("\"")[0].Replace("\\", "");
+        var userID = Regex.Match(data, @"pk_id"":""(\d+)").Groups[1].Value;
+
+
+        return new LoginResult { Token = token, UserId = userID };
+
+    }
+
+    public class LoginResult
+    {
+        public string Token { get; set; }
+        public string UserId { get; set; }
+    }
+
+
+    public async Task<(string Time, string Password)> EncryptPasswordAsync2(string password)
+    {
+        var randKey = new byte[32];
+        using (var rng = new RNGCryptoServiceProvider())
+        {
+            rng.GetBytes(randKey);
+        }
+
+        var iv = new byte[12];
+        using (var rng = new RNGCryptoServiceProvider())
+        {
+            rng.GetBytes(iv);
+        }
+
+
+        var keys = await SyncLoginExperimentsAsync();
+        var passwordEncryptionKeyId = int.Parse(keys.KeyId);
+        var passwordEncryptionPubKey = keys.PublicKey;
+
+
+
+
+        var rsaEncrypted = new byte[0];
+        var rsaKeyParameters = (RsaKeyParameters)PublicKeyFactory.CreateKey(Convert.FromBase64String(passwordEncryptionPubKey));
+        var rsaEngine = new RsaEngine();
+        rsaEngine.Init(true, rsaKeyParameters);
+        rsaEncrypted = rsaEngine.ProcessBlock(randKey, 0, randKey.Length);
+
+        var cipher = new GcmBlockCipher(new AesFastEngine());
+        var parameters = new AeadParameters(new KeyParameter(randKey), 128, iv, Encoding.UTF8.GetBytes(DateTimeOffset.UtcNow.ToUnixTimeSeconds().ToString()));
+        cipher.Init(true, parameters);
+
+        var aesEncrypted = new byte[cipher.GetOutputSize(Encoding.UTF8.GetByteCount(password))];
+        var len = cipher.ProcessBytes(Encoding.UTF8.GetBytes(password), 0, Encoding.UTF8.GetByteCount(password), aesEncrypted, 0);
+        cipher.DoFinal(aesEncrypted, len);
+
+        var sizeBuffer = BitConverter.GetBytes((short)rsaEncrypted.Length);
+
+
+        return (DateTimeOffset.UtcNow.ToUnixTimeSeconds().ToString(), Convert.ToBase64String(
+                new byte[] { 1, (byte)passwordEncryptionKeyId }
+                .Concat(iv)
+                .Concat(sizeBuffer)
+                .Concat(rsaEncrypted)
+                .Concat(cipher.GetMac())
+                .Concat(aesEncrypted)
+                .ToArray()));
+    }
+
+    private async Task<(string Time, string Password)> EncryptPasswordAsync(string password, CancellationToken cancellationToken = default)
+    {
+        var randKey = new byte[32];
+        using (var rng = new RNGCryptoServiceProvider())
+        {
+            rng.GetBytes(randKey);
+        }
+
+        var iv = new byte[12];
+        using (var rng = new RNGCryptoServiceProvider())
+        {
+            rng.GetBytes(iv);
+        }
+        var keys = await SyncLoginExperimentsAsync(cancellationToken);
+        var rsaEncrypted = RSAEncrypt(randKey, keys.PublicKey);
+        var cipher = new GcmBlockCipher(new AesEngine());
+        var time = Math.Floor((double)DateTimeOffset.UtcNow.ToUnixTimeSeconds()).ToString();
+        cipher.Init(true, new AeadParameters(new KeyParameter(randKey), 128, iv, Encoding.UTF8.GetBytes(time)));
+        var aesEncrypted = new byte[cipher.GetOutputSize(Encoding.UTF8.GetByteCount(password))];
+        var len = cipher.ProcessBytes(Encoding.UTF8.GetBytes(password), 0, Encoding.UTF8.GetByteCount(password), aesEncrypted, 0);
+        cipher.DoFinal(aesEncrypted, len);
+
+        var sizeBuffer = new byte[2];
+        Buffer.BlockCopy(BitConverter.GetBytes((short)rsaEncrypted.Length), 0, sizeBuffer, 0, 2);
+
+        var authTag = cipher.GetMac();
+
+        var passwordBytes = new byte[1 + 4 + 12 + 2 + rsaEncrypted.Length + 16 + aesEncrypted.Length];
+        passwordBytes[0] = 1;
+        Buffer.BlockCopy(BitConverter.GetBytes(int.Parse(keys.KeyId)), 0, passwordBytes, 1, 4);
+        Buffer.BlockCopy(iv, 0, passwordBytes, 5, 12);
+        Buffer.BlockCopy(sizeBuffer, 0, passwordBytes, 17, 2);
+        Buffer.BlockCopy(rsaEncrypted, 0, passwordBytes, 19, rsaEncrypted.Length);
+        Buffer.BlockCopy(authTag, 0, passwordBytes, 19 + rsaEncrypted.Length, 16);
+        Buffer.BlockCopy(aesEncrypted, 0, passwordBytes, 19 + rsaEncrypted.Length + 16, aesEncrypted.Length);
+
+        return (time, Convert.ToBase64String(passwordBytes));
+    }
+
+    private byte[] RSAEncrypt(byte[] data, string publicKey)
+    {
+        var rsa = new RSACryptoServiceProvider();
+        var keyBytes = Convert.FromBase64String(publicKey);
+        var pemReader = new Org.BouncyCastle.OpenSsl.PemReader(new StreamReader(new MemoryStream(keyBytes)));
+        var publicKeyParams = (Org.BouncyCastle.Crypto.Parameters.RsaKeyParameters)pemReader.ReadObject();
+        var rsaParameters = new RSAParameters
+        {
+            Modulus = publicKeyParams.Modulus.ToByteArrayUnsigned(),
+            Exponent = publicKeyParams.Exponent.ToByteArrayUnsigned()
+        };
+        rsa.ImportParameters(rsaParameters);
+        return rsa.Encrypt(data, RSAEncryptionPadding.Pkcs1);
+    }
+
+    private async Task<(string KeyId, string PublicKey)> SyncLoginExperimentsAsync(CancellationToken cancellationToken = default)
+    {
+        var loginData = new LoginData();
+        var signedData = Sign(loginData);
+        var request = new HttpRequestMessage(HttpMethod.Post, new Uri($"{BaseApiUrl}/qe/sync/"));
+        request.Content = new FormUrlEncodedContent(signedData);
+        GetAppHeaders(request);
+        request.Headers.Add("Sec-Fetch-Site", "same-origin");
+        request.Headers.Add("X-DEVICE-ID", loginData.id.ToString());
+
+        var response = await _client.SendAsync(request, cancellationToken).ConfigureAwait(false);
+
+        response.Headers.TryGetValues("ig-set-password-encryption-key-id", out var keyidHeaders);
+        response.Headers.TryGetValues("ig-set-password-encryption-pub-key", out var pubKeyHeaders);
+
+        if (!keyidHeaders.Any() || !pubKeyHeaders.Any())
+        {
+            throw new InvalidOperationException("Could not log in");
+        }
+
+        return (keyidHeaders.First(), pubKeyHeaders.First());
+    }
+
+    private Dictionary<string, string> Sign(LoginData data)
+    {
+        var json = JsonSerializer.Serialize(data);
+        var signature = GetHMAC(json, Constants.SignatureKey);
+
+        return new Dictionary<string, string>
+        {
+            { "ig_sig_key_version", 4.ToString() },
+            { "signed_body", $"{signature}.{json}" },
+        };
+    }
+
+    private string GetHMAC(string text, string key)
+    {
+        using var hmacsha256 = new HMACSHA256(Encoding.UTF8.GetBytes(key));
+        var hash = hmacsha256.ComputeHash(Encoding.UTF8.GetBytes(text));
+        return Convert.ToBase64String(hash);
+    }
+
+    private class LoginData
+    {
+        public Guid id { get; set; } = Guid.NewGuid();
+        public string experiments { get; set; } = Constants.LoginExperiments;
     }
 
     /// <inheritdoc/>

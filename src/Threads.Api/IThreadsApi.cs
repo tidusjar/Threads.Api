@@ -2,11 +2,14 @@
 using System.Threading.Tasks;
 using Threads.Api.Models;
 using Threads.Api.Models.Response;
+using static Threads.Api.ThreadsApi;
 
 namespace Threads.Api;
 
 public interface IThreadsApi
 {
+
+    Task<LoginResult> LoginAsync(string username, string password, CancellationToken cancellationToken = default);
     /// <summary>
     /// Returns the User Id for the specified username
     /// </summary>
