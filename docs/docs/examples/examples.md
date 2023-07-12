@@ -8,7 +8,7 @@ sidebar_position: 2
 ### Post
 ```csharp
 IThreadsApi api = new ThreadsApi(new HttpClient());
-var authToken = await api.GetTokenAsync("tidusjar", "password");
+var authToken = await api.LoginAsync("tidusjar", "password");
 await api.PostAsync("tidusjar", "Hello!", authToken);
 ```
 
@@ -16,7 +16,7 @@ await api.PostAsync("tidusjar", "Hello!", authToken);
 ```csharp
 IThreadsApi api = new ThreadsApi(new HttpClient());
 
-var authToken = await api.GetTokenAsync("tidusjar", "password");
+var authToken = await api.LoginAsync("tidusjar", "password");
 
 var userNameToFollow = "zuck";
 var userToFollow = await api.GetUserIdFromUserNameAsync(userNameToFollow);
