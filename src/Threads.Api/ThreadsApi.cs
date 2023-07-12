@@ -1,7 +1,15 @@
 ﻿using Microsoft.AspNetCore.WebUtilities;
+using Org.BouncyCastle.Crypto.Engines;
+using Org.BouncyCastle.Crypto.Modes;
+using Org.BouncyCastle.Crypto.Parameters;
+using Org.BouncyCastle.Security;
 using System;
 using System.Collections.Generic;
+using System.IO;
+using System.Linq;
 using System.Net.Http;
+using System.Security.Cryptography;
+using System.Text;
 using System.Text.Json;
 using System.Text.RegularExpressions;
 using System.Threading;
@@ -12,7 +20,7 @@ using Threads.Api.Models.Response;
 
 namespace Threads.Api;
 
-public class ThreadsApi : IThreadsApi
+public partial class ThreadsApi : IThreadsApi
 {
     private readonly HttpClient _client;
     private const string _url = "https://www.threads.net/";
@@ -167,31 +175,28 @@ public class ThreadsApi : IThreadsApi
 
 
     /// <inheritdoc/>
-    public async Task<string> GetTokenAsync(string username, string password, CancellationToken cancellationToken = default)
+    public async Task<LoginResult> LoginAsync(string username, string password, CancellationToken cancellationToken = default)
     {
-        if (string.IsNullOrEmpty(username))
-        {
-            throw new ArgumentNullException(username);
-        }
-        if (string.IsNullOrWhiteSpace(password))
-        {
-            throw new ArgumentNullException(password);
-        }
+        var encryptedPassword = await EncryptPasswordAsync(password);
 
-        var body = JsonSerializer.Serialize(new
+        var requestBody = new
         {
             client_input_params = new
             {
-                password = password,
+                password = $"#PWD_INSTAGRAM:4:{encryptedPassword.Time}:{encryptedPassword.Password}",
                 contact_point = username,
                 device_id = _deviceId
             },
             server_params = new
             {
                 credential_type = "password",
-                device_id = _deviceId,
+                device_id = _deviceId
             }
-        });
+        };
+
+        var json = JsonSerializer.Serialize(requestBody);
+        var param = Uri.EscapeDataString(json);
+
         var blockVersion = "5f56efad68e1edec7801f630b5c122704ec5378adbee6609a448f105f34a9c73";
 
         var bkClientContext = JsonSerializer.Serialize(new
@@ -201,7 +206,7 @@ public class ThreadsApi : IThreadsApi
         });
 
         var request = new HttpRequestMessage(HttpMethod.Post, new Uri(LoginUrl));
-        var content = new StringContent($"params={body}&bk_client_context={bkClientContext}&bloks_versioning_id={blockVersion}");
+        var content = new StringContent($"params={param}&bk_client_context={Uri.EscapeDataString(bkClientContext)}&bloks_versioning_id={blockVersion}");
 
         GetAppHeaders(request);
         request.Content = content;
@@ -212,10 +217,118 @@ public class ThreadsApi : IThreadsApi
         var response = await _client.SendAsync(request, cancellationToken).ConfigureAwait(false);
         var data = await response.Content.ReadAsStringAsync().ConfigureAwait(false);
 
-        var token = data.Split(new[] { "Bearer IGT:2:" }, StringSplitOptions.None)[1]
-                   .Split('"')[0]
-                   .Replace("\\", "");
-        return token;
+
+        var token = data.Split("Bearer IGT:2:")[1].Split("\"")[0].Replace("\\", "");
+        var userID = Regex.Match(data, @"pk_id"":""(\d+)").Groups[1].Value;
+
+
+        return new LoginResult { Token = token, UserId = userID };
+    }
+
+
+    static private readonly SecureRandom secureRandom = new SecureRandom();
+    private async Task<(long Time, string Password)> EncryptPasswordAsync(string password)
+    {
+        // https://github.com/ramtinak/InstagramApiSharp/blob/master/src/InstagramApiSharp/API/InstaApi.cs#L959
+        var keys = await SyncLoginExperimentsAsync().ConfigureAwait(false);
+        var pubKey = keys.PublicKey;
+        var pubKeyId = keys.KeyId;
+        byte[] randKey = new byte[32];
+        byte[] iv = new byte[12];
+        secureRandom.NextBytes(randKey, 0, randKey.Length);
+        secureRandom.NextBytes(iv, 0, iv.Length);
+        long time = ToUnixTime(DateTime.UtcNow);
+        byte[] associatedData = Encoding.UTF8.GetBytes(time.ToString());
+        var pubKEY = Encoding.UTF8.GetString(Convert.FromBase64String(pubKey));
+        byte[] encryptedKey;
+        using (var rdr = PemKeyUtils.GetRSAProviderFromPemString(pubKEY.Trim()))
+            encryptedKey = rdr.Encrypt(randKey, false);
+
+        byte[] plaintext = Encoding.UTF8.GetBytes(password);
+
+        var cipher = new GcmBlockCipher(new AesEngine());
+        var parameters = new AeadParameters(new KeyParameter(randKey), 128, iv, associatedData);
+        cipher.Init(true, parameters);
+
+        var ciphertext = new byte[cipher.GetOutputSize(plaintext.Length)];
+        var len = cipher.ProcessBytes(plaintext, 0, plaintext.Length, ciphertext, 0);
+        cipher.DoFinal(ciphertext, len);
+
+        var con = new byte[plaintext.Length];
+        for (int i = 0; i < plaintext.Length; i++)
+            con[i] = ciphertext[i];
+        ciphertext = con;
+        var tag = cipher.GetMac();
+
+        byte[] buffersSize = BitConverter.GetBytes(Convert.ToInt16(encryptedKey.Length));
+        byte[] encKeyIdBytes = BitConverter.GetBytes(Convert.ToUInt16(pubKeyId));
+        if (BitConverter.IsLittleEndian)
+            Array.Reverse(encKeyIdBytes);
+        encKeyIdBytes[0] = 1;
+        var payload = Convert.ToBase64String(encKeyIdBytes.Concat(iv).Concat(buffersSize).Concat(encryptedKey).Concat(tag).Concat(ciphertext).ToArray());
+
+        return (time, payload);
+    }
+
+    private static readonly DateTime UnixEpoch = new DateTime(1970, 1, 1, 0, 0, 0, DateTimeKind.Utc);
+    public static long ToUnixTime(DateTime date)
+    {
+        try
+        {
+            return Convert.ToInt64((date - UnixEpoch).TotalSeconds);
+        }
+        catch
+        {
+            return 0;
+        }
+    }
+
+    private async Task<(string KeyId, string PublicKey)> SyncLoginExperimentsAsync(CancellationToken cancellationToken = default)
+    {
+        var loginData = new LoginData();
+        var signedData = Sign(loginData);
+        var request = new HttpRequestMessage(HttpMethod.Post, new Uri($"{BaseApiUrl}/qe/sync/"));
+        request.Content = new FormUrlEncodedContent(signedData);
+        GetAppHeaders(request);
+        request.Headers.Add("Sec-Fetch-Site", "same-origin");
+        request.Headers.Add("X-DEVICE-ID", loginData.id.ToString());
+
+        var response = await _client.SendAsync(request, cancellationToken).ConfigureAwait(false);
+
+        response.Headers.TryGetValues("ig-set-password-encryption-key-id", out var keyidHeaders);
+        response.Headers.TryGetValues("ig-set-password-encryption-pub-key", out var pubKeyHeaders);
+
+        if (!keyidHeaders.Any() || !pubKeyHeaders.Any())
+        {
+            throw new InvalidOperationException("Could not log in");
+        }
+
+        return (keyidHeaders.First(), pubKeyHeaders.First());
+    }
+
+    private Dictionary<string, string> Sign(LoginData data)
+    {
+        var json = JsonSerializer.Serialize(data);
+        var signature = GetHMAC(json, Constants.SignatureKey);
+
+        return new Dictionary<string, string>
+        {
+            { "ig_sig_key_version", 4.ToString() },
+            { "signed_body", $"{signature}.{json}" },
+        };
+    }
+
+    private string GetHMAC(string text, string key)
+    {
+        using var hmacsha256 = new HMACSHA256(Encoding.UTF8.GetBytes(key));
+        var hash = hmacsha256.ComputeHash(Encoding.UTF8.GetBytes(text));
+        return Convert.ToBase64String(hash);
+    }
+
+    private class LoginData
+    {
+        public Guid id { get; set; } = Guid.NewGuid();
+        public string experiments { get; set; } = Constants.LoginExperiments;
     }
 
     /// <inheritdoc/>

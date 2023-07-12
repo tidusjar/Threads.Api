@@ -2,11 +2,13 @@
 using System.Threading.Tasks;
 using Threads.Api.Models;
 using Threads.Api.Models.Response;
+using static Threads.Api.ThreadsApi;
 
 namespace Threads.Api;
 
 public interface IThreadsApi
 {
+
     /// <summary>
     /// Returns the User Id for the specified username
     /// </summary>
@@ -52,7 +54,7 @@ public interface IThreadsApi
     /// <param name="password">Password to authenticate the user</param>
     /// <param name="cancellationToken"><see cref="CancellationToken"/></param>
     /// <returns>a authentication token</returns>
-    Task<string> GetTokenAsync(string username, string password, CancellationToken cancellationToken = default);
+    Task<LoginResult> LoginAsync(string username, string password, CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Posts a new thread
