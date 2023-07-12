@@ -6,6 +6,7 @@
 [![Forks][forks-shield]][forks-url]
 [![Stargazers][stars-shield]][stars-url]
 [![Issues][issues-shield]][issues-url]
+[![Nuget][nuget-shield]][nuget-url]
 
 </div>
 
@@ -126,3 +127,5 @@ Project Link: [https://github.com/tidusjar/Threads.Api](https://github.com/tidus
 [issues-url]: https://github.com/tidusjar/Threads.Api/issues
 [license-shield]: https://img.shields.io/github/license/tidusjar/Threads.Api.svg?style=for-the-badge
 [license-url]: https://github.com/tidusjar/Threads.Api/blob/main/LICENSE.txt
+[nuget-shield]: https://img.shields.io/nuget/vpre/Threads.Api?style=for-the-badge
+[nuget-url]: https://www.nuget.org/packages/Threads.Api/
