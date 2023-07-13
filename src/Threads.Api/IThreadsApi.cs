@@ -66,6 +66,8 @@ public interface IThreadsApi
     /// <returns>ID of the post</returns>
     Task<string> PostAsync(string userId, string message, string authToken, CancellationToken cancellationToken = default);
 
+    Task<string> PostImageAsync(string username, string message, string authToken, ImageUploadRequest image, CancellationToken cancellationToken = default);
+
     /// <summary>
     /// Follows a user
     /// </summary>
@@ -85,4 +87,5 @@ public interface IThreadsApi
     /// <param name="cancellationToken"><see cref="CancellationToken"/></param>
     /// <returns>true if success else false</returns>
     Task<bool> UnFollowAsync(int userId, string token, string authToken, CancellationToken cancellationToken = default);
+
 }

@@ -11,6 +11,7 @@ using System.Net.Http;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
+using System.Text.Json.Serialization;
 using System.Text.RegularExpressions;
 using System.Threading;
 using System.Threading.Tasks;
@@ -30,6 +31,7 @@ public partial class ThreadsApi : IThreadsApi
 
     private readonly string LoginUrl = $"{BaseApiUrl}/bloks/apps/com.bloks.www.bloks.caa.login.async.send_login_request/";
     private readonly string PostUrl = $"{BaseApiUrl}/media/configure_text_only_post/";
+    private readonly string PostImageUrl = $"{BaseApiUrl}/media/configure_text_post_app_feed/";
 
     public ThreadsApi(HttpClient httpClient)
     {
@@ -44,6 +46,39 @@ public partial class ThreadsApi : IThreadsApi
             throw new ArgumentNullException(nameof(username));
         }
 
+        try
+        {
+            var userResult = await GetUserIdFromUserNameInternal(username, cancellationToken);
+
+            if (int.TryParse(userResult.UserId, out int value))
+            {
+                return new UserIdResponse
+                {
+                    Token = userResult.LsdToken,
+                    UserId = value
+                };
+            }
+        }
+        catch (UserNotFoundException)
+        {
+            var userResult = await GetUserIdFromUserNameInternal(username, cancellationToken);
+
+            if (int.TryParse(userResult.UserId, out int value))
+            {
+                return new UserIdResponse
+                {
+                    Token = userResult.LsdToken,
+                    UserId = value
+                };
+            }
+        }
+
+
+        throw new UserNotFoundException(username);
+    }
+
+    private async Task<(string UserId, string LsdToken)> GetUserIdFromUserNameInternal(string username, CancellationToken cancellationToken)
+    {
         var request = new HttpRequestMessage(HttpMethod.Get, $"{_url}@{username}");
         GetDefaultHeaders(null, request);
 
@@ -74,16 +109,7 @@ public partial class ThreadsApi : IThreadsApi
             throw new UserNotFoundException(username);
         }
 
-        if (int.TryParse(userID, out int value))
-        {
-            return new UserIdResponse
-            {
-                Token = lsdToken,
-                UserId = value
-            };
-        }
-
-        throw new UserNotFoundException(username);
+        return (userID, lsdToken);
     }
 
 
@@ -390,6 +416,65 @@ public partial class ThreadsApi : IThreadsApi
         return postData?.media?.id;
     }
 
+    public async Task<string> PostImageAsync(string username, string message, string authToken, ImageUploadRequest image, CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrEmpty(username))
+        {
+            throw new ArgumentNullException(username);
+        }
+        if (string.IsNullOrWhiteSpace(message))
+        {
+            throw new ArgumentNullException(message);
+        }
+        if (string.IsNullOrWhiteSpace(authToken))
+        {
+            throw new ArgumentNullException(authToken);
+        }
+
+        var userId = await GetUserIdFromUserNameAsync(username, cancellationToken);
+
+        var imageUploadResult = await UploadImageAsync(image, authToken, cancellationToken);
+
+        var data = new
+        {
+            text_post_app_info = new { reply_control = 0 },
+            timezone_offset = "3600",
+            source_type = '4',
+            _uid = userId.UserId,
+            device_id = _deviceId,
+            caption = message,
+            upload_id = imageUploadResult.upload_id,
+            device = new
+            {
+                manufacturer = "OnePlus",
+                model = "ONEPLUS+A3010",
+                os_version = 25,
+                os_release = "7.1.1",
+            },
+            publish_mode = "text_post",
+            scene_capture_type = string.Empty,
+        };
+
+
+        var payload = $"signed_body=SIGNATURE.{JsonSerializer.Serialize(data)}";
+
+        var request = new HttpRequestMessage(HttpMethod.Post, new Uri(PostImageUrl))
+        {
+            Content = new StringContent(payload)
+        };
+        GetAppHeaders(request, authToken);
+        request.Content.Headers.Clear();
+        request.Content.Headers.Add("Content-Type", "application/x-www-form-urlencoded");
+        request.Content.Headers.Add("Response-Type", "text");
+
+        var response = await _client.SendAsync(request, cancellationToken).ConfigureAwait(false);
+
+        var stream = await response.Content.ReadAsStreamAsync().ConfigureAwait(false);
+        var postData = await JsonSerializer.DeserializeAsync<PostResponse>(stream).ConfigureAwait(false);
+
+        return postData?.media?.id;
+    }
+
     /// <inheritdoc/>
     public Task<bool> FollowAsync(int userId, string token, string authToken, CancellationToken cancellationToken = default)
     {
@@ -421,6 +506,87 @@ public partial class ThreadsApi : IThreadsApi
         var data = await JsonSerializer.DeserializeAsync<GenericResponse>(stream).ConfigureAwait(false);
 
         return data?.IsSuccess ?? false;
+    }
+
+    private async Task<ImageUploadResponse> UploadImageAsync(ImageUploadRequest image, string authToken, CancellationToken cancellationToken = default)
+    {
+        string uploadId = DateTime.Now.Ticks.ToString();
+        string name = $"{uploadId}_0_{new Random().Next(100000000, 999999999)}";
+        string url = $"https://www.instagram.com/rupload_igphoto/{name}";
+
+        byte[] imageBytes;
+        string mime_type;
+
+        if (!string.IsNullOrEmpty(image.Path))
+        {
+            bool isFilePath = !image.Path.StartsWith("http");
+            if (isFilePath)
+            {
+                imageBytes = await File.ReadAllBytesAsync(image.Path).ConfigureAwait(false);
+                mime_type = "image/png" ?? "application/octet-stream";
+            }
+            else
+            {
+                HttpResponseMessage imageResponse = await _client.GetAsync(image.Path).ConfigureAwait(false);
+                imageBytes = await imageResponse.Content.ReadAsByteArrayAsync();
+                mime_type = imageResponse.Content.Headers.ContentType.MediaType;
+            }
+        }
+        else
+        {
+            imageBytes = image.Content;
+            mime_type = image.MimeType ?? "application/octet-stream";
+        }
+
+        Dictionary<string, string> x_instagram_rupload_params = new Dictionary<string, string>
+        {
+            { "upload_id", uploadId },
+            { "media_type", "1" },
+            { "sticker_burnin_params", "[]" },
+            { "image_compression", "{\"lib_name\":\"moz\",\"lib_version\":\"3.1.m\",\"quality\":\"80\"}" },
+            { "xsharing_user_ids", "[]" },
+            { "retry_context", "{\"num_step_auto_retry\":\"0\",\"num_reupload\":\"0\",\"num_step_manual_retry\":\"0\"}" },
+            { "IG-FB-Xpost-entry-point-v2", "feed" }
+        };
+
+        int contentLength = imageBytes.Length;
+        Dictionary<string, string> imageHeaders = new Dictionary<string, string>
+        {
+            { "X_FB_PHOTO_WATERFALL_ID", Guid.NewGuid().ToString() },
+            { "X-Entity-Type", mime_type ?? "image/jpeg" },
+            { "Offset", "0" },
+            { "X-Instagram-Rupload-Params", JsonSerializer.Serialize(x_instagram_rupload_params) },
+            { "X-Entity-Name", name },
+            { "X-Entity-Length", contentLength.ToString() },
+            { "Accept-Encoding", "gzip" }
+        };
+
+        Dictionary<string, string> contentHeaders = new Dictionary<string, string>
+        {
+            { "Content-Type", "application/octet-stream" },
+            { "Content-Length", contentLength.ToString() },
+        };
+
+
+
+        var request = new HttpRequestMessage(HttpMethod.Post, new Uri(url));
+
+        GetDefaultHeaders(null, request, authToken);
+        request.Content = new ByteArrayContent(imageBytes);
+        //request.Content.Headers.Clear();
+        foreach (KeyValuePair<string, string> header in contentHeaders)
+        {
+            request.Content.Headers.Add(header.Key, header.Value);
+        }
+        foreach (KeyValuePair<string, string> header in imageHeaders)
+        {
+            request.Headers.Add(header.Key, header.Value);
+        }
+
+        var response = await _client.SendAsync(request, cancellationToken).ConfigureAwait(false);
+        var data = await response.Content.ReadAsStreamAsync().ConfigureAwait(false);
+
+        return await JsonSerializer.DeserializeAsync<ImageUploadResponse>(data, cancellationToken: cancellationToken).ConfigureAwait(false);        
     }
 
     private void GetDefaultHeaders(string token, HttpRequestMessage request, string authToken = default)

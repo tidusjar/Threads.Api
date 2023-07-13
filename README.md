@@ -107,7 +107,7 @@ Don't forget to give the project a star! Thanks again!
 <!-- CONTACT -->
 ## Contact
 
-Your Name - [@tidusjar](https://twitter.com/@tidusjar) - tidusjar@gmail.com
+Jamie - [@tidusjar](https://twitter.com/@tidusjar) - tidusjar@gmail.com
 
 Project Link: [https://github.com/tidusjar/Threads.Api](https://github.com/tidusjar/Threads.Api)
 
